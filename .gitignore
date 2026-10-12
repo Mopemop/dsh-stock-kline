@@ -6,6 +6,11 @@ node_modules/
 Thumbs.db
 *.log
 
+# JetBrains IDE（.idea/ 里是各人本地的工程配置，不该进仓库）
+.idea/
+.vscode/
+*.iml
+
 # ⚠️ 注意：lib/ 是**构建产物，但要提交**。
 #
 # DSH 装上这个包之后直接读 lib/index.js（宿主半侧）和 lib/client.js（浏览器半侧），
