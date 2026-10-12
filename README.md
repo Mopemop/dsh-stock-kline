@@ -494,6 +494,34 @@ node scripts/sync.mjs --no-build # 安装自检（junction + bundle 声明）
 本插件是一个 **bundle**：DSH 插件页里能列出它、能开关、能卸载，
 和 `dsh-pet` / `dsh-ops` 处在同一套管理机制下。
 
+### 从 GitHub 安装（普通用户走这条）
+
+```
+https://github.com/Mopemop/dsh-stock-kline
+```
+
+**方式一：插件页**
+DSH 的「插件」页 → 「添加插件」→ 粘贴上面的仓库地址 → 安装 → 启用。
+
+**方式二：对话里让 Agent 装**
+让 Agent 用 `plugin_manager` 工具安装，spec 就是同一个地址：
+
+```
+plugin_manager  install_bundle  target = https://github.com/Mopemop/dsh-stock-kline
+```
+
+装完**重启一次 DSH**（bundle 层在启动时组合），插件页里就会多出一行
+`dsh-stock-kline`，可以随时开关或卸载。
+
+> 仓库里**包含 `lib/`（构建产物）**，所以安装方不需要跑构建 —— DSH 装上就直接读
+> `lib/index.js`（宿主半侧）与 `lib/client.js`（浏览器半侧）。
+> 这也是为什么 `.gitignore` 里没有 `lib/`。
+
+### 本地开发安装（改源码的人走这条）
+
+见下面「目录结构」与「安装 / 卸载」两节：用 `link:` 规格安装，`node_modules` 里是
+指向源码目录的 junction，改完 `node scripts/build.mjs` 就生效，无需拷贝。
+
 ### 判定条件（缺一不可）
 
 DSH 是否把它当受管插件，取决于三个事实：
