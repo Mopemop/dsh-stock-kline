@@ -7,13 +7,36 @@ import {
   searchSymbolList,
   parseThsKline,
   parseEastmoneyMinutes,
+  parseTencentMinutes,
   unwrapJsonp,
 } from '../lib/market.js';
 
 let failures = 0;
+let skips = 0;
 function check(label, ok, detail) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail === undefined ? '' : '  ' + detail}`);
   if (!ok) failures++;
+}
+
+/**
+ * 数据源**连不上**时记 SKIP，不算失败。
+ *
+ * 为什么需要：东财会限流（实测本机经常 `fetch failed`）。那些"专门验证东财这条路"
+ * 的断言在限流期间既不能通过、也不代表代码坏了 —— 记成 FAIL 会让整个套件长期飘红，
+ * 久了就没人看测试结果了。记成 PASS 更糟（掩盖真实故障）。
+ *
+ * 判据只看**网络层**错误：`fetch failed` / socket 断开 / 超时。
+ * 一旦请求拿到了响应但数据不对，仍然走 check 记 FAIL。
+ */
+const NETWORK_ERROR = /fetch failed|UND_ERR|ECONNRESET|ETIMEDOUT|socket|timeout/i;
+function checkOrSkip(label, error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (NETWORK_ERROR.test(message)) {
+    skips++;
+    console.log(`SKIP  ${label}  （数据源不可达，无法验证）${message}`);
+    return;
+  }
+  check(label, false, message);
 }
 
 // --- 纯函数 ---
@@ -86,6 +109,102 @@ const REAL_INDEX_ROWS = [
     const one = parseEastmoneyMinutes(['2026-10-12 09:31,1,4300,1,1,0,0']);
     return one.length === 1 && one[0].average === 4300;
   })());
+}
+
+// --- 港股/美股指数：解析（离线） ---
+//
+// 这些标的的代码**不是 6 位数字**（恒生 HSI、道指 DJI），走的是另一条分支，
+// 必须在数字/拼音路径之前命中，否则 `DJI` 会被当成拼音去搜股票。
+for (const [input, code, prefix, market] of [
+  ['恒生指数', 'HSI', 'hk', 'hkHSI'],
+  ['恒生科技', 'HSTECH', 'hk', 'hkHSTECH'],
+  ['道琼斯', 'DJI', 'us', 'usDJI'],
+  ['纳斯达克', 'IXIC', 'us', 'usIXIC'],
+  ['标普500', 'INX', 'us', 'usINX'],
+  ['HSI', 'HSI', 'hk', 'hkHSI'],
+  ['hkHSI', 'HSI', 'hk', 'hkHSI'],
+  ['hsi', 'HSI', 'hk', 'hkHSI'], // 大小写不敏感
+  ['usDJI', 'DJI', 'us', 'usDJI'],
+  ['DJI', 'DJI', 'us', 'usDJI'],
+]) {
+  try {
+    const ref = await resolveSymbol(input);
+    check(
+      `resolveSymbol(${input}) → ${code}`,
+      ref.code === code && ref.prefix === prefix && ref.isIndex === true && ref.market === market,
+      JSON.stringify(ref),
+    );
+  } catch (error) {
+    check(`resolveSymbol(${input}) → ${code}`, false, error.message);
+  }
+}
+
+// 随便一个字母串不能被当成指数（要老实报"无法识别"）
+try {
+  const bogus = await resolveSymbol('zzzz');
+  check('无法识别的字母串不应解析成指数', bogus.isIndex !== true, JSON.stringify(bogus));
+} catch (error) {
+  check('无法识别的字母串不应解析成指数', true, error.message);
+}
+
+// --- 美股指数没有分钟级数据：必须**明确报错**，不能返回退化结果 ---
+//
+// 这条也是离线的：守卫在发请求**之前**，因为指望接口报错是靠不住的 ——
+// 腾讯对美股指数的 `minute/query` 只回 1 个点、m5/m15/m30/m60 只回 1 根，
+// 都算"请求成功"。放过去的话界面会画出一条只有一个点的分时线。
+for (const period of ['minute', '5', '15', '30', '60']) {
+  try {
+    const q = await getQuote('道琼斯', period);
+    check(`美股指数 ${period} 应报错`, false, `居然成功了：bars=${q.candles.length}`);
+  } catch (error) {
+    check(
+      `美股指数 ${period} 应报错`,
+      /没有分钟级数据/.test(error.message),
+      error.message,
+    );
+  }
+}
+
+// --- 腾讯分时解析（离线，用真实抓到的点）---
+//
+// 每点格式：`HHmm 价格 累计成交量 累计成交额`。均价同样不能用 `累计额/累计量`
+// —— 港股指数这里两者相除得到 10000 这种量级，与指数点位（24000）无关。
+const REAL_HK_MINUTE = [
+  '0930 24434.930 292908 2929082925.101',
+  '0931 24372.610 679397 6793967675.128',
+  '0932 24369.120 900838 9008376948.181',
+];
+{
+  const pts = parseTencentMinutes(REAL_HK_MINUTE);
+  check('parseTencentMinutes 点数', pts.length === 3, `got ${pts.length}`);
+  check(
+    'parseTencentMinutes 字段映射',
+    pts[0].time === '0930' && pts[0].price === 24434.93 && pts[0].average === 24434.93,
+    JSON.stringify(pts[0]),
+  );
+  // 累计量要转成**每分钟增量**，否则成交量副图会画成单调递增的斜坡
+  check(
+    'parseTencentMinutes 把累计量换成每分钟增量',
+    pts[1].volume === 679397 - 292908 && pts[2].volume === 900838 - 679397,
+    `增量 ${pts.map((p) => p.volume).join(', ')}`,
+  );
+  const prices = pts.map((p) => p.price);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  check(
+    'parseTencentMinutes 均价落在价格区间内（老算法会得到 ~10000）',
+    pts.every((p) => p.average >= lo && p.average <= hi),
+    `区间 ${lo}~${hi}，末均价 ${pts[2].average.toFixed(2)}`,
+  );
+  const byAmount = 9008376948.181 / 900838;
+  check(
+    'parseTencentMinutes 均价不是 累计额/累计量',
+    Math.abs(pts[2].average - byAmount) > 1000,
+    `新 ${pts[2].average.toFixed(2)} vs 老 ${byAmount.toFixed(2)}`,
+  );
+  // 累计量回退（数据修正）时不产生负增量
+  const back = parseTencentMinutes(['0930 100 500 1', '0931 101 400 1']);
+  check('parseTencentMinutes 累计量回退时不产生负成交量', back[1].volume === 0, `volume=${back[1].volume}`);
 }
 
 // --- 网络：代码归一化 ---
@@ -171,7 +290,7 @@ try {
     `source=${q.source} name=${q.name} bars=${q.candles.length} last=${JSON.stringify(q.candles.at(-1))}`,
   );
 } catch (error) {
-  check('getQuote 东财兜底 day', false, error.message);
+  checkOrSkip('getQuote 东财兜底 day', error);
 }
 
 // --- 网络：深市与创业板 ---
@@ -218,7 +337,7 @@ for (const [symbol, label] of [
       );
     }
   } catch (error) {
-    check(`分时均价落在价格区间内（${label} ${symbol}）`, false, error.message);
+    checkOrSkip(`分时均价落在价格区间内（${label} ${symbol}）`, error);
   }
 }
 
@@ -230,5 +349,6 @@ try {
   check('无效代码应报错', true, error.message);
 }
 
-console.log(`\n${failures === 0 ? '全部通过' : failures + ' 项失败'}`);
+const summary = failures === 0 ? '全部通过' : failures + ' 项失败';
+console.log(`\n${summary}${skips > 0 ? `（${skips} 项因数据源不可达跳过）` : ''}`);
 process.exit(failures === 0 ? 0 : 1);

@@ -181,18 +181,37 @@ function createStore() {
     return inFlight;
   }
 
+  /**
+   * 把"标的 + 周期"凑成合法组合。
+   *
+   * 只有**美股指数**会说不上话：腾讯对它们只提供日/周/月 K，分钟级接口只回一个点。
+   * 所以切到美股指数时若当前是分时/5分/…，要自动回落到日 K —— 否则界面必然
+   * 停在"该周期没有数据"。放在 store 而不是面板里，是因为标的来源不止一处：
+   * 面板按钮、搜索、以及**上次会话存下来的偏好**（水合时可能正好是"美股指数 + 分时"）。
+   */
+  function coercePeriod(symbol, period) {
+    var allowed = periodsForCode(symbol);
+    if (allowed === null || allowed.indexOf(period) >= 0) return period;
+    return 'day';
+  }
+
   function selectSymbol(symbol) {
     if (!symbol || symbol === state.symbol) {
       refresh();
       return;
     }
-    set({ symbol: symbol, quote: null });
-    persist({ symbol: symbol });
+    var period = coercePeriod(symbol, state.period);
+    set({ symbol: symbol, period: period, quote: null });
+    persist({ symbol: symbol, period: period });
     refresh();
+    // 周期可能被回落过，刷新间隔也要跟着换档
+    startAutoRefresh();
   }
 
   function setPeriod(period) {
     if (period === state.period) return;
+    // 该标的不支持这个周期就直接忽略（面板上那个按钮也已置灰）
+    if (coercePeriod(state.symbol, period) !== period) return;
     set({ period: period, quote: null });
     persist({ period: period });
     refresh();
@@ -286,6 +305,11 @@ function createStore() {
     PREF_KEYS.forEach(function (key) {
       if (local[key] !== undefined) patch[key] = local[key];
     });
+    // 存下来的可能是"美股指数 + 分时"这种非法组合（改版前存的、或手工改过 prefs），
+    // 水合时必须顺手纠正，否则一打开就是"该周期没有数据"。
+    if (patch.symbol !== undefined) {
+      patch.period = coercePeriod(patch.symbol, patch.period === undefined ? state.period : patch.period);
+    }
     if (Object.keys(patch).length > 0) set(patch);
     // 宿主侧偏好更权威（换浏览器/清缓存后仍是同一只股票），异步覆盖；
     // 但用户已经动过就不再覆盖，否则会把刚点的开关/刚切的周期抹掉。
@@ -300,6 +324,9 @@ function createStore() {
         PREF_KEYS.forEach(function (key) {
           if (prefs[key] !== undefined) hosted[key] = prefs[key];
         });
+        if (hosted.symbol !== undefined) {
+          hosted.period = coercePeriod(hosted.symbol, hosted.period === undefined ? state.period : hosted.period);
+        }
         saveLocalPrefs(Object.assign(loadLocalPrefs(), hosted));
         set(hosted);
         // 宿主偏好可能改了周期 → 刷新间隔跟着换档

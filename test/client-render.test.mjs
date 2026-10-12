@@ -588,7 +588,13 @@ check(
 // 指数就那么几个、天天看，做成一排按钮一次点击直达；个股有几千个，只能靠搜索。
 // 清单真源在 lib/indices.js，客户端的 src/client/indices.js 由构建脚本校验一致。
 
-const INDEX_NAMES_EXPECTED = ['沪深300', '中证500', '上证50', '深证成指', '创业板指', '中小100'];
+const INDEX_GROUPS_EXPECTED = [
+  { label: '沪深', names: ['沪深300', '中证500', '上证50', '深证成指', '创业板指', '中小100'] },
+  { label: '港股', names: ['恒生指数', '恒生科技'] },
+  { label: '美股', names: ['道琼斯', '纳斯达克', '标普500'] },
+];
+const ALL_INDEX_NAMES = INDEX_GROUPS_EXPECTED.flatMap((group) => group.names);
+
 const indexButtons = [];
 (function walk(node) {
   if (node === null || node === undefined || typeof node !== 'object') return;
@@ -597,26 +603,63 @@ const indexButtons = [];
   (node.children ?? []).forEach(walk);
 })(tree);
 const indexLabels = indexButtons.map((button) => textOf(button).trim());
-for (const name of INDEX_NAMES_EXPECTED) {
-  check(`指数快捷按钮里有「${name}」`, indexLabels.includes(name), indexLabels.join(' | ').slice(0, 200));
+for (const name of ALL_INDEX_NAMES) {
+  check(`指数快捷按钮里有「${name}」`, indexLabels.includes(name), indexLabels.join(' | ').slice(0, 260));
 }
-check(
-  '指数快捷按钮不会和周期按钮混在一起',
-  (() => {
-    // 指数行单独一个容器（.dsk-indexRow），周期行是 .dsk-head 里的 .dsk-tabs
-    const row = findNode(tree, (node) => node.props?.className === 'dsk-indexRow');
-    if (row === null) return false;
-    const inRow = [];
-    (function walk(node) {
-      if (node === null || node === undefined || typeof node !== 'object') return;
-      if (Array.isArray(node)) return node.forEach(walk);
-      if (node.type === 'button') inRow.push(textOf(node).trim());
-      (node.children ?? []).forEach(walk);
-    })(row);
-    return inRow.length === INDEX_NAMES_EXPECTED.length && inRow.every((label) => INDEX_NAMES_EXPECTED.includes(label));
-  })(),
-  '指数行应只含指数按钮',
-);
+
+/** 收集某节点下的全部按钮文案。 */
+function buttonTextsUnder(node) {
+  const out = [];
+  (function walk(n) {
+    if (n === null || n === undefined || typeof n !== 'object') return;
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (n.type === 'button') out.push(textOf(n).trim());
+    (n.children ?? []).forEach(walk);
+  })(node);
+  return out;
+}
+
+// 指数快捷行按市场分组：沪深 / 港股 / 美股。11 个按钮平铺一片会看不出市场归属。
+{
+  const row = findNode(tree, (node) => node.props?.className === 'dsk-indexRow');
+  check('指数快捷行存在', row !== null);
+
+  const groups = (row?.children ?? []).filter(
+    (child) => typeof child?.props?.className === 'string' && child.props.className.includes('dsk-indexGroup'),
+  );
+  check(
+    '指数行按 3 个市场分组',
+    groups.length === INDEX_GROUPS_EXPECTED.length,
+    `实际 ${groups.length} 组`,
+  );
+
+  INDEX_GROUPS_EXPECTED.forEach((expected, index) => {
+    const group = groups[index];
+    if (group === undefined) {
+      check(`第 ${index + 1} 组是「${expected.label}」`, false, '(缺少该组)');
+      return;
+    }
+    const labels = buttonTextsUnder(group);
+    check(
+      `第 ${index + 1} 组是「${expected.label}」且成员正确`,
+      textOf(group).includes(expected.label) &&
+        labels.length === expected.names.length &&
+        expected.names.every((name) => labels.includes(name)),
+      `→ ${labels.join(',')}`,
+    );
+  });
+
+  // 周期按钮、搜索、刷新、两个开关都不能出现在指数行里
+  const forbidden = ['分时', '5分', '15分', '30分', '60分', '日K', '周K', '月K', '刷新', '浮窗 开', '皮肤 开'];
+  const inRow = buttonTextsUnder(row);
+  check(
+    '指数行只含指数按钮（不混周期/操作按钮）',
+    inRow.length === ALL_INDEX_NAMES.length &&
+      inRow.every((label) => ALL_INDEX_NAMES.includes(label)) &&
+      !inRow.some((label) => forbidden.includes(label)),
+    inRow.join(' | '),
+  );
+}
 
 // 点一下指数按钮，应该切到这个指数（而不是去开搜索）
 const hs300Button = indexButtons.find((button) => textOf(button).trim() === '沪深300');
@@ -679,8 +722,7 @@ if (hs300Button !== undefined) {
   const quoteRow = byClass(panelTree, 'dsk-quoteRow');
   const toolbar = byClass(panelTree, 'dsk-toolbar');
   const indexRow = byClass(panelTree, 'dsk-indexRow');
-  check('① 行情行存在', quoteRow !== null);
-  check('② 工具行存在', toolbar !== null);
+  check('① 行情行存在', quoteRow !== null);  check('② 工具行存在', toolbar !== null);
   check('③ 快捷指数行独立于头部两行', indexRow !== null);
 
   // ① 行情行：标题/价格/涨跌在左，spacer 之后是数据元信息（来源 + 时间成对）
@@ -2493,6 +2535,92 @@ if (api !== undefined && typeof api.css === 'function') {
 const firstRender = render(mainComponent, {});
 const secondRender = render(mainComponent, {});
 check('两次渲染结构一致（快照稳定）', textOf(firstRender) === textOf(secondRender), `${textOf(firstRender).length} vs ${textOf(secondRender).length} 字符`);
+
+// ----------------------------------------------------------------- 周期与标的的匹配
+//
+// 美股指数**没有分钟级数据**（腾讯只提供日/周/月 K，分钟接口只回一个点）。
+// 如果不管这件事，用户切到道琼斯时界面会停在"该周期没有数据"，而且看不出为什么。
+// 两侧都要管：面板把按钮置灰（说清原因），store 把周期回落到日 K（覆盖搜索、
+// 偏好水合这些非按钮入口）。
+
+{
+  const { periodsForCode, store } = plugin.__test;
+
+  check('periodsForCode 对个股不限周期', periodsForCode('600519') === null, String(periodsForCode('600519')));
+  check('periodsForCode 对 A 股指数不限周期', periodsForCode('000300') === null, String(periodsForCode('000300')));
+  check('periodsForCode 对港股指数不限周期', periodsForCode('HSI') === null, String(periodsForCode('HSI')));
+  check(
+    'periodsForCode 把美股指数限制成日/周/月',
+    JSON.stringify(periodsForCode('DJI')) === JSON.stringify(['day', 'week', 'month']),
+    JSON.stringify(periodsForCode('DJI')),
+  );
+  check('periodsForCode 对未知代码不限周期', periodsForCode('NOPE') === null, String(periodsForCode('NOPE')));
+
+  // 切到美股指数时，周期要从"分时"自动回落到"日K"
+  store.setPeriod('minute');
+  store.selectSymbol('DJI');
+  check(
+    '切到美股指数时分时周期自动回落到日K',
+    store.get().symbol === 'DJI' && store.get().period === 'day',
+    `symbol=${store.get().symbol} period=${store.get().period}`,
+  );
+
+  // 在美股指数上点分钟周期按钮：store 要拒绝（面板按钮也已置灰）
+  store.setPeriod('30');
+  check('美股指数上不能用分钟周期（store 拒绝）', store.get().period === 'day', `period=${store.get().period}`);
+  store.setPeriod('week');
+  check('美股指数上可以切到周K', store.get().period === 'week', `period=${store.get().period}`);
+
+  // 回到 A 股指数后，分钟周期重新可用
+  store.selectSymbol('000300');
+  store.setPeriod('minute');
+  check('A 股指数上分钟周期可用', store.get().period === 'minute', `period=${store.get().period}`);
+
+  // 面板：美股指数下四个分钟按钮应 disabled，日/周/月不 disabled
+  store.selectSymbol('DJI');
+  const usTree = render(mainComponent, {});
+  const usButtons = [];
+  (function walk(node) {
+    if (node === null || node === undefined || typeof node !== 'object') return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.type === 'button') usButtons.push(node);
+    (node.children ?? []).forEach(walk);
+  })(usTree);
+  const byLabel = (label) => usButtons.find((b) => textOf(b).trim() === label);
+  const minuteLabels = ['分时', '5分', '15分', '30分', '60分'];
+  const disabledMinute = minuteLabels.filter((label) => byLabel(label)?.props?.disabled === true);
+  check(
+    '面板：美股指数下分钟周期按钮全部置灰',
+    disabledMinute.length === minuteLabels.length,
+    `置灰 ${disabledMinute.join(',') || '(无)'}`,
+  );
+  check(
+    '面板：美股指数下日/周/月按钮可用',
+    ['日K', '周K', '月K'].every((label) => byLabel(label)?.props?.disabled !== true),
+  );
+  check(
+    '面板：置灰按钮带有说明原因的 title',
+    typeof byLabel('分时')?.props?.title === 'string' && byLabel('分时').props.title.includes('日/周/月'),
+    String(byLabel('分时')?.props?.title),
+  );
+
+  // 换回 A 股指数：按钮恢复可用
+  store.selectSymbol('000300');
+  const cnTree = render(mainComponent, {});
+  const cnButtons = [];
+  (function walk(node) {
+    if (node === null || node === undefined || typeof node !== 'object') return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.type === 'button') cnButtons.push(node);
+    (node.children ?? []).forEach(walk);
+  })(cnTree);
+  check(
+    '面板：A 股指数下所有周期按钮都可用',
+    ['分时', '5分', '15分', '30分', '60分', '日K', '周K', '月K'].every(
+      (label) => cnButtons.find((b) => textOf(b).trim() === label)?.props?.disabled !== true,
+    ),
+  );
+}
 
 console.log(`\n${failures === 0 ? '全部通过' : failures + ' 项失败'}`);
 process.exit(failures === 0 ? 0 : 1);

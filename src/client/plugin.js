@@ -232,5 +232,7 @@ return {
     // 自动刷新间隔表（按周期分档），给 test/live-update.test.mjs 断言
     REFRESH_MS_BY_PERIOD: REFRESH_MS_BY_PERIOD,
     refreshIntervalFor: refreshIntervalFor,
+    // 周期与标的的匹配（美股指数只有日/周/月），给 render 测试断言置灰逻辑
+    periodsForCode: periodsForCode,
   },
 };

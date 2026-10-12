@@ -288,39 +288,49 @@ function StockPanel(props) {
   var color = change === null ? 'inherit' : change > 0 ? UP : change < 0 ? DOWN : 'inherit';
 
   /**
-   * 常见指数快捷行。
+   * 常见指数快捷行 —— 按**市场分组**显示（沪深 / 港股 / 美股）。
    *
    * 为什么单独做一排：指数和白马股是两类完全不同的入口 ——
    * 指数就那么几个、天天看，应该一次点击直达；而个股有几千个，只能靠搜索。
    * 清单来自 `indices.js`（与宿主共用一份），不要在这里另写一张表。
+   *
+   * 为什么分组：加了港股/美股之后一共 11 个按钮，平铺一排会看不出哪个是哪个市场；
+   * 分组标题（沪深/港股/美股）顺带说明了"这几个不是 A 股"，也解释了它们的
+   * 周期限制（美股只有日/周/月）。
    */
   var indexRow = h(
     'div',
     { className: 'dsk-indexRow', key: 'indexes' },
-    [
-      h('span', { className: 'dsk-indexLabel', key: 'lb' }, '指数'),
-      h(
-        'div',
-        { className: 'dsk-tabs', key: 'tabs' },
-        INDEXES.map(function (row) {
-          return h(
-            'button',
-            {
-              key: row.code,
-              type: 'button',
-              className: 'dsk-tab',
-              // 高亮当前选中的指数（个股时全部不高亮）
-              'data-on': state.symbol === row.code ? '1' : '0',
-              title: row.name + ' ' + row.code,
-              onClick: function () {
-                store.selectSymbol(row.code);
+    INDEX_GROUPS.map(function (group) {
+      var rows = INDEXES.filter(function (row) {
+        return row.group === group.id;
+      });
+      if (rows.length === 0) return null;
+      return h('div', { className: 'dsk-indexGroup', key: group.id }, [
+        h('span', { className: 'dsk-indexLabel', key: 'lb' }, group.label),
+        h(
+          'div',
+          { className: 'dsk-tabs', key: 'tabs' },
+          rows.map(function (row) {
+            return h(
+              'button',
+              {
+                key: row.code,
+                type: 'button',
+                className: 'dsk-tab',
+                // 高亮当前选中的指数（个股时全部不高亮）
+                'data-on': state.symbol === row.code ? '1' : '0',
+                title: row.name + ' ' + row.code,
+                onClick: function () {
+                  store.selectSymbol(row.code);
+                },
               },
-            },
-            row.name,
-          );
-        }),
-      ),
-    ],
+              row.name,
+            );
+          }),
+        ),
+      ]);
+    }),
   );
 
   /**
@@ -393,11 +403,20 @@ function StockPanel(props) {
     state.loading ? [h('span', { className: 'dsk-spin', key: 'sp' }), '刷新'] : '刷新',
   );
 
+  /**
+   * 当前标的支持哪些周期。
+   *
+   * 只有**美股指数**受限（腾讯对它们只提供日/周/月 K）—— 所以那四个分钟按钮
+   * 要置灰。不置灰的话用户点了只会看到"该周期没有数据"，而且看不出为什么。
+   */
+  var allowedPeriods = periodsForCode(state.symbol);
+
   var toolbarRow = h('div', { className: 'dsk-toolbar', key: 'toolbar' }, [
     h(
       'div',
       { className: 'dsk-tabs', key: 'periods' },
       PERIOD_ROWS.map(function (row) {
+        var supported = allowedPeriods === null || allowedPeriods.indexOf(row.id) >= 0;
         return h(
           'button',
           {
@@ -405,7 +424,10 @@ function StockPanel(props) {
             type: 'button',
             className: 'dsk-tab',
             'data-on': state.period === row.id ? '1' : '0',
+            disabled: supported ? undefined : true,
+            title: supported ? undefined : '该标的没有这个周期的数据（腾讯只提供日/周/月 K）',
             onClick: function () {
+              if (!supported) return;
               store.setPeriod(row.id);
             },
           },

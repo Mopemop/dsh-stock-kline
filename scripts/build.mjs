@@ -86,7 +86,7 @@ const EXPORTS = {
     'zoomStepsToCount',
   ],
   prefs: ['API', 'LOCAL_KEY', 'PREF_KEYS', 'loadLocalPrefs', 'saveLocalPrefs'],
-  indices: ['INDEXES', 'indexByCode'],
+  indices: ['INDEXES', 'INDEX_GROUPS', 'indexByCode', 'periodsForCode'],
   styles: ['STYLE_TAG', 'cssText', 'getCss', 'installCss'],
   market: ['createStore', 'useStore', 'REFRESH_MS_BY_PERIOD', 'refreshIntervalFor'],
   chart: ['KlineChart'],
@@ -108,9 +108,9 @@ const MODULES = [
   { name: 'prefs', file: 'prefs.js', deps: [], what: '偏好读写（浏览器本地存储为主，尽力同步宿主）' },
   { name: 'indices', file: 'indices.js', deps: [], what: '常见指数清单（与宿主 lib/indices.js 同源）' },
   { name: 'styles', file: 'styles.js', deps: [], what: '样式注入（CSS 文本在 styles/client.css）' },
-  // market 依赖 format 是为了缩放维度：`zoom` 的默认值、上下限与夹取
-  // 都存在 format 里（主面板与对话背景共用一份），store 只做转发与持久化。
-  { name: 'market', file: 'market.js', deps: ['@platform', 'prefs', 'format'], what: '行情状态中心 store + 订阅 Hook' },
+  // market 依赖 indices 是为了「周期与标的匹配」：切到美股指数时要把分钟周期
+  // 回落到日 K（腾讯对美股指数只提供日/周/月）。依赖 format 则是缩放维度那一套。
+  { name: 'market', file: 'market.js', deps: ['@platform', 'prefs', 'format', 'indices'], what: '行情状态中心 store + 订阅 Hook' },
   { name: 'chart', file: 'chart.js', deps: ['@platform', 'format'], what: '自绘 SVG K 线图' },
   { name: 'ticker', file: 'ticker.js', deps: ['@platform', 'format', 'market'], what: '价格挂件（透明小标签：名称 + 涨跌百分比）' },
   { name: 'skin', file: 'skin.js', deps: ['@platform', 'format', 'market'], what: '对话页背景 K 线（DOM 注入）' },
@@ -126,7 +126,7 @@ const MODULES = [
   {
     name: 'plugin',
     file: 'plugin.js',
-    deps: ['@platform', 'styles', 'format', 'market', 'ticker', 'skin', 'chart', 'chart-panel'],
+    deps: ['@platform', 'styles', 'format', 'market', 'indices', 'ticker', 'skin', 'chart', 'chart-panel'],
     what: '插件入口：槽位注册与生命周期',
   },
 ];
@@ -148,12 +148,25 @@ function verifyIndexList() {
   const libSrc = readFileSync(join(ROOT, 'lib', 'indices.js'), 'utf8');
   const clientSrc = readFileSync(join(SRC, 'indices.js'), 'utf8');
 
-  /** 从形如 { code: '000300', prefix: 'sh', name: '沪深300' } 的行里抽条目。 */
+  /**
+   * 从形如 { code: '000300', prefix: 'sh', name: '沪深300', group: 'cn' } 的行里抽条目。
+   *
+   * ⚠️ 代码**不都是 6 位数字**：港股/美股指数是字母（恒生 `HSI`、道指 `DJI`）。
+   * 所以这里匹配 `[A-Za-z0-9.]+`，前缀也扩到 hk/us。之前写死 `\d{6}` 与 `(sh|sz|bj)`
+   * 时，新增的港股/美股条目会被**静默忽略** —— 那样"两份一致"的校验就形同虚设。
+   */
   const parse = (text, label) => {
-    const rows = [...text.matchAll(/\{\s*code:\s*'(\d{6})',\s*prefix:\s*'(sh|sz|bj)',\s*name:\s*'([^']+)'\s*\}/g)].map(
-      (m) => `${m[1]}|${m[2]}|${m[3]}`,
-    );
+    const rows = [
+      ...text.matchAll(
+        /\{\s*code:\s*'([A-Za-z0-9.]+)',\s*prefix:\s*'(sh|sz|bj|hk|us)',\s*name:\s*'([^']+)',\s*group:\s*'(cn|hk|us)'\s*\}/g,
+      ),
+    ].map((m) => `${m[1]}|${m[2]}|${m[3]}|${m[4]}`);
     if (rows.length === 0) throw new Error(`${label}: 没解析出任何指数条目`);
+    // 条数必须与源码里 `code:` 的出现次数吻合，否则说明有行没被上面的正则覆盖到
+    const declared = (text.match(/\bcode:\s*'/g) ?? []).length;
+    if (rows.length !== declared) {
+      throw new Error(`${label}: 解析到 ${rows.length} 条，但源码里有 ${declared} 处 code: —— 有条目没被校验覆盖`);
+    }
     return rows;
   };
 

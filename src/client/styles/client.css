@@ -17,12 +17,19 @@
 .dsk-price{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
 .dsk-chg{font-size:13px;font-variant-numeric:tabular-nums}
 .dsk-spacer{flex:1 1 auto}
-.dsk-indexRow{display:flex;align-items:center;gap:8px;padding:0 clamp(12px,2vw,24px) 8px;flex-wrap:wrap}
+/* 指数快捷行：按市场分组（沪深 / 港股 / 美股）。
+   组与组之间留更大的间距，组内紧凑 —— 否则 11 个按钮连成一片看不出市场归属。 */
+.dsk-indexRow{display:flex;align-items:center;gap:14px;padding:0 clamp(12px,2vw,24px) 8px;flex-wrap:wrap;row-gap:6px}
+.dsk-indexGroup{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .dsk-indexLabel{font-size:12px;color:var(--dsw-alias-label-secondary);flex:none}
 .dsk-tabs{display:flex;flex-wrap:wrap;gap:2px;background:var(--dsw-alias-bg-layer-2);border-radius:8px;padding:2px}
 .dsk-tab{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12px;line-height:20px;padding:3px 9px;border-radius:6px;font-family:inherit}
 .dsk-tab:hover{color:var(--dsw-alias-label-primary)}
 .dsk-tab[data-on="1"]{background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+/* 该标的没有这个周期的数据（美股指数只有日/周/月）——置灰但保留位置，
+   这样周期按钮的排列不会随标的变化而跳动。 */
+.dsk-tab:disabled{opacity:.35;cursor:not-allowed}
+.dsk-tab:disabled:hover{color:var(--dsw-alias-label-secondary)}
 .dsk-btn{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:8px;padding:4px 10px;font-size:12px;font-family:inherit;line-height:20px;display:inline-flex;align-items:center;gap:5px}
 .dsk-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}
 .dsk-btn[data-on="1"]{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
