@@ -1,0 +1,15 @@
+# 统一用 LF 存进仓库。
+#
+# 为什么对**这个**项目尤其重要：`scripts/build.mjs` 会对模块源码做精确字符串匹配
+# （依赖注入检查、指数清单比对、CSS 规则完整性检查）。如果 Windows 检出时被换成 CRLF，
+# 这些匹配就会因为多出来的 \r 而出错或误报。
+#
+# `eol=lf` 表示：仓库里存 LF，检出时也保持 LF（不做平台转换）。
+* text=auto eol=lf
+
+# 二进制资源：不要做任何文本转换
+*.webp binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary

@@ -1,0 +1,59 @@
+{
+  "name": "dsh-stock-kline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "同花顺实时 K 线行情插件：对话背景 K 线皮肤 + 可拖动价格挂件 + 行情主面板，支持分时/5-60 分/日/周/月、均线、成交量、滚轮缩放与拖拽平移；数据源同花顺，失败自动回落东方财富。",
+  "icon": "assets/icon.webp",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "stock",
+    "kline",
+    "candlestick",
+    "quote",
+    "web-ui",
+    "cordis"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./lib/market.js": "./lib/market.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "scripts",
+    "test",
+    "assets",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:check": "node scripts/build.mjs --check",
+    "test": "node scripts/build.mjs --check && node test/market.test.mjs && node test/routes.test.mjs && node test/client-render.test.mjs && node test/zoom-mount.test.mjs && node test/search.test.mjs && node test/live-update.test.mjs",
+    "sync": "node scripts/sync.mjs"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "react": "^18.2.0"
+  }
+}

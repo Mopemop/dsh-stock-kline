@@ -1,0 +1,25 @@
+# ============================================================================
+# dsh-stock-kline 的 bundle patch —— 把行情插件挂进 DSH 配置树
+# ============================================================================
+#
+# 【这是什么】
+#   本插件的挂载声明。DSH 启动时把 package.json 里 dsh.profile.bundles 列出的每个
+#   bundle 的 patch 依次叠加，组成最终配置树；本文件是其中一层。
+#
+# 【工作原理】
+#   - insert：往配置树里加一行插件（entry）
+#   - id 必须与包名一致（商城/清单契约按它比对 entryIds），且这一行**不能写行尾注释**
+#     （预检正则要求 id 的值后面直接换行）
+#   - name: 'dsh-stock-kline' 解析到包入口 lib/index.js（宿主半侧）
+#   - package.json 里声明了 dsh.client 且 exports 有 "./client"，
+#     于是 DSH 的模块系统同时把这个包扫成"浏览器插件"，向页面提供
+#     /plugins/dsh-stock-kline/client.js
+#
+# 【依赖前提】
+#   宿主半侧 inject: ['webServer'] —— 需要 dsh-host-webserver（dsh-base / dsh-web-app
+#   组合里已包含）。
+# ============================================================================
+
+- insert:
+    - id: dsh-stock-kline
+      name: 'dsh-stock-kline'

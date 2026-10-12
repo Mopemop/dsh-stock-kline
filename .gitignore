@@ -1,0 +1,14 @@
+# 依赖
+node_modules/
+
+# 系统 / 编辑器垃圾
+.DS_Store
+Thumbs.db
+*.log
+
+# ⚠️ 注意：lib/ 是**构建产物，但要提交**。
+#
+# DSH 装上这个包之后直接读 lib/index.js（宿主半侧）和 lib/client.js（浏览器半侧），
+# 安装过程**没有构建步骤**。所以 lib/ 必须进仓库，否则从 GitHub 装下来是个空壳。
+#
+# 重新生成：node scripts/build.mjs
