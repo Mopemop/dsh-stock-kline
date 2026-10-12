@@ -6,6 +6,7 @@ import {
   searchSymbol,
   searchSymbolList,
   parseThsKline,
+  parseEastmoneyMinutes,
   unwrapJsonp,
 } from '../lib/market.js';
 
@@ -38,6 +39,54 @@ check(
   'unwrapJsonp 兼容纯 JSON',
   JSON.stringify(unwrapJsonp('{"a":1}')) === '{"a":1}',
 );
+
+// --- 东财分时的均价：离线单测（用**真实抓到的原始行**，不依赖网络）---
+//
+// 这里钉的是一个真实 bug：均价原来用 `Σ成交额 / Σ成交量` 算，而东财的
+// 成交量单位是「手」、成交额是元 —— 个股差 100 倍；指数上更是无意义的量。
+// 抽成纯函数就是为了让这条断言在数据源限流时也能跑（本机实测经常被限流）。
+const REAL_INDEX_ROWS = [
+  // 沪深300，2026-10-12，东财 klt=1 原始行
+  '2026-10-12 09:31,4305.91,4309.15,4309.96,4304.05,7268980,15468059904.00',
+  '2026-10-12 09:32,4309.32,4313.02,4313.02,4309.32,3335940,7124824320.00',
+  '2026-10-12 09:33,4314.03,4313.94,4315.38,4313.20,2425988,6110919680.00',
+];
+{
+  const pts = parseEastmoneyMinutes(REAL_INDEX_ROWS);
+  check('parseEastmoneyMinutes 根数', pts.length === 3, `got ${pts.length}`);
+  check(
+    'parseEastmoneyMinutes 字段映射（f[2] 是收盘价，时间取 HHmm）',
+    pts[0].time === '0931' && pts[0].price === 4309.15 && pts[0].volume === 7268980,
+    JSON.stringify(pts[0]),
+  );
+
+  const prices = pts.map((p) => p.price);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  const last = pts[pts.length - 1];
+  check(
+    '均价落在价格区间内（老算法在这里会得到 ~2203，差一倍）',
+    last.average >= lo && last.average <= hi,
+    `区间 ${lo}~${hi}，均价 ${last.average.toFixed(2)}`,
+  );
+  // 明确排除老算法：Σ额/Σ量
+  const byAmount =
+    (15468059904.0 + 7124824320.0 + 6110919680.0) / (7268980 + 3335940 + 2425988);
+  check(
+    '均价不是 Σ成交额/Σ成交量（老算法的值）',
+    Math.abs(last.average - byAmount) > 100,
+    `新 ${last.average.toFixed(2)} vs 老 ${byAmount.toFixed(2)}`,
+  );
+  check(
+    '第一根的均价等于它自己的价格',
+    pts[0].average === pts[0].price,
+    `${pts[0].average} vs ${pts[0].price}`,
+  );
+  check('成交量缺失时均价退化为该根价格，不产生 NaN', (() => {
+    const one = parseEastmoneyMinutes(['2026-10-12 09:31,1,4300,1,1,0,0']);
+    return one.length === 1 && one[0].average === 4300;
+  })());
+}
 
 // --- 网络：代码归一化 ---
 for (const input of ['600519', 'sh600519', '600519.SH', 'hs_600519']) {
@@ -132,6 +181,44 @@ for (const code of ['000001', '300750']) {
     check(`getQuote ${code} day`, q.candles.length > 0 && q.name.length > 0, `name=${q.name} bars=${q.candles.length}`);
   } catch (error) {
     check(`getQuote ${code} day`, false, error.message);
+  }
+}
+
+// --- 分时均价必须落在价格区间内 ---
+//
+// 这条断言钉的是一个真实 bug：东财那条路径原来用 `Σ成交额 / Σ成交量` 算均价，
+// 而东财的**成交量单位是「手」**、成交额是元 —— 个股直接差 100 倍；
+// **指数上更是无意义**（指数没有"每股价格"，它的额/量是成分股平均股价；
+// 实测沪深300 得到 2128，而指数在 4300 附近），均价线会画到绘图区外面去。
+//
+// 判据用"均价必须落在当日 [最低价, 最高价] 之间"：它与数据源、单位、市场都无关，
+// 所以换了标的或数据源也不会失效。留 1% 余量给加权边界上的口径差异。
+for (const [symbol, label] of [
+  ['600519', '个股'],
+  ['000300', '指数'],
+]) {
+  try {
+    const q = await getQuote(symbol, 'minute');
+    const m = q.minutes ?? [];
+    if (m.length === 0) {
+      check(`分时均价落在价格区间内（${label} ${symbol}）`, false, `source=${q.source} 没有 minutes`);
+    } else {
+      const prices = m.map((p) => p.price);
+      const lo = Math.min(...prices);
+      const hi = Math.max(...prices);
+      const slack = (hi - lo) * 0.01 + 1e-6;
+      const bad = m.filter((p) => !(p.average >= lo - slack && p.average <= hi + slack));
+      check(
+        `分时均价落在价格区间内（${label} ${symbol}）`,
+        bad.length === 0,
+        `source=${q.source} bars=${m.length} 区间 ${lo}~${hi}` +
+          (bad.length > 0
+            ? `；越界 ${bad.length} 个，例如 ${bad[0].time} 价 ${bad[0].price} 均价 ${bad[0].average.toFixed(2)}`
+            : '；全部合理'),
+      );
+    }
+  } catch (error) {
+    check(`分时均价落在价格区间内（${label} ${symbol}）`, false, error.message);
   }
 }
 
