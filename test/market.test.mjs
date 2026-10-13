@@ -147,21 +147,42 @@ try {
   check('无法识别的字母串不应解析成指数', true, error.message);
 }
 
-// --- 美股指数没有分钟级数据：必须**明确报错**，不能返回退化结果 ---
+// --- 美股指数**有**分钟级数据（走东财）---
 //
-// 这条也是离线的：守卫在发请求**之前**，因为指望接口报错是靠不住的 ——
+// 这里原来断言的是反面：「美股指数没有分钟级数据，必须明确报错」。那时是对的 ——
 // 腾讯对美股指数的 `minute/query` 只回 1 个点、m5/m15/m30/m60 只回 1 根，
-// 都算"请求成功"。放过去的话界面会画出一条只有一个点的分时线。
-for (const period of ['minute', '5', '15', '30', '60']) {
+// 而且都算"请求成功"，所以只能显式拦。
+//
+// 接上东财后前提变了：东财 `secid=100.DJIA` 等的 klt=1 能给满 **390 根**
+// （6.5 小时 × 60，正好一个美股交易日），klt=5/15/30/60 也有原生数据。
+// 于是断言反转成"必须真的拿到足够多的点"。
+//
+// 属于网络断言：东财限流时会 SKIP（见 checkOrSkip）。
+for (const [symbol, period, minBars] of [
+  ['道琼斯', 'minute', 200],
+  ['纳斯达克', 'minute', 200],
+  ['标普500', 'minute', 200],
+  ['道琼斯', '5', 20],
+  ['道琼斯', 'day', 20],
+]) {
   try {
-    const q = await getQuote('道琼斯', period);
-    check(`美股指数 ${period} 应报错`, false, `居然成功了：bars=${q.candles.length}`);
-  } catch (error) {
+    const q = await getQuote(symbol, period);
+    const ok = q.candles.length >= minBars;
     check(
-      `美股指数 ${period} 应报错`,
-      /没有分钟级数据/.test(error.message),
-      error.message,
+      `美股指数 ${symbol} ${period} 有数据`,
+      ok,
+      `source=${q.source} bars=${q.candles.length}（期望 ≥ ${minBars}）`,
     );
+    // 分时周期还要保证 candles 与 minutes 等长，否则图上的折线会与坐标轴错位
+    if (period === 'minute') {
+      check(
+        `美股指数 ${symbol} 分时：minutes 与 candles 等长`,
+        (q.minutes ?? []).length === q.candles.length,
+        `minutes=${(q.minutes ?? []).length} candles=${q.candles.length}`,
+      );
+    }
+  } catch (error) {
+    checkOrSkip(`美股指数 ${symbol} ${period} 有数据`, error);
   }
 }
 

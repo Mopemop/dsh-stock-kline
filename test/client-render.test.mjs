@@ -2536,90 +2536,68 @@ const firstRender = render(mainComponent, {});
 const secondRender = render(mainComponent, {});
 check('两次渲染结构一致（快照稳定）', textOf(firstRender) === textOf(secondRender), `${textOf(firstRender).length} vs ${textOf(secondRender).length} 字符`);
 
-// ----------------------------------------------------------------- 周期与标的的匹配
+// ------------------------------------------------- 每个指数都该有全部周期
 //
-// 美股指数**没有分钟级数据**（腾讯只提供日/周/月 K，分钟接口只回一个点）。
-// 如果不管这件事，用户切到道琼斯时界面会停在"该周期没有数据"，而且看不出为什么。
-// 两侧都要管：面板把按钮置灰（说清原因），store 把周期回落到日 K（覆盖搜索、
-// 偏好水合这些非按钮入口）。
+// 这里**曾经**断言"美股指数下分钟周期按钮置灰"——因为那时美股确实拿不到分钟数据
+// （腾讯的分时接口对美股只回 1 个点）。接上东财之后不成立了：东财的 klt=1 对
+// 美股指数能给满 390 根，klt=5/15/30/60 也有原生数据；恒生科技东财没有，
+// 但腾讯的分时够用、能自己聚合成分钟 K 线。
+//
+// 所以现在断言反过来：**任何标的、任何周期都不该被禁用**。
+// 这条比原来那条更有价值 —— 它守的是"别再把能用的周期藏起来"。
+
+/** 收集树里所有按钮，按文案索引。 */
+function buttonsByLabel(tree) {
+  const found = new Map();
+  (function walk(node) {
+    if (node === null || node === undefined || typeof node !== 'object') return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.type === 'button') found.set(textOf(node).trim(), node);
+    (node.children ?? []).forEach(walk);
+  })(tree);
+  return found;
+}
 
 {
-  const { periodsForCode, store } = plugin.__test;
+  const { store } = plugin.__test;
+  const ALL_PERIOD_LABELS = ['分时', '5分', '15分', '30分', '60分', '日K', '周K', '月K'];
 
-  check('periodsForCode 对个股不限周期', periodsForCode('600519') === null, String(periodsForCode('600519')));
-  check('periodsForCode 对 A 股指数不限周期', periodsForCode('000300') === null, String(periodsForCode('000300')));
-  check('periodsForCode 对港股指数不限周期', periodsForCode('HSI') === null, String(periodsForCode('HSI')));
-  check(
-    'periodsForCode 把美股指数限制成日/周/月',
-    JSON.stringify(periodsForCode('DJI')) === JSON.stringify(['day', 'week', 'month']),
-    JSON.stringify(periodsForCode('DJI')),
-  );
-  check('periodsForCode 对未知代码不限周期', periodsForCode('NOPE') === null, String(periodsForCode('NOPE')));
+  check('periodsForCode 已随限制一起移除', plugin.__test.periodsForCode === undefined);
 
-  // 切到美股指数时，周期要从"分时"自动回落到"日K"
-  store.setPeriod('minute');
+  for (const [symbol, label] of [
+    ['600519', '个股'],
+    ['000300', 'A 股指数'],
+    ['HSI', '港股指数'],
+    ['HSTECH', '港股指数（东财没有、走腾讯）'],
+    ['DJI', '美股指数'],
+    ['IXIC', '美股指数'],
+  ]) {
+    store.selectSymbol(symbol);
+    const buttons = buttonsByLabel(render(mainComponent, {}));
+    const disabled = ALL_PERIOD_LABELS.filter((l) => buttons.get(l)?.props?.disabled === true);
+    check(
+      `${label} ${symbol}：8 个周期按钮全部可用`,
+      buttons.size > 0 && disabled.length === 0,
+      disabled.length > 0 ? `被禁用：${disabled.join(',')}` : '无禁用',
+    );
+  }
+
+  // store 不该再拦截任何周期（原来会把美股指数上的分钟周期挡掉）
   store.selectSymbol('DJI');
-  check(
-    '切到美股指数时分时周期自动回落到日K',
-    store.get().symbol === 'DJI' && store.get().period === 'day',
-    `symbol=${store.get().symbol} period=${store.get().period}`,
-  );
-
-  // 在美股指数上点分钟周期按钮：store 要拒绝（面板按钮也已置灰）
+  store.setPeriod('minute');
+  check('美股指数上可以切到分时（store 不再回落）', store.get().period === 'minute', `period=${store.get().period}`);
   store.setPeriod('30');
-  check('美股指数上不能用分钟周期（store 拒绝）', store.get().period === 'day', `period=${store.get().period}`);
-  store.setPeriod('week');
-  check('美股指数上可以切到周K', store.get().period === 'week', `period=${store.get().period}`);
+  check('美股指数上可以切到 30 分', store.get().period === '30', `period=${store.get().period}`);
+  store.setPeriod('month');
+  check('美股指数上可以切到月 K', store.get().period === 'month', `period=${store.get().period}`);
 
-  // 回到 A 股指数后，分钟周期重新可用
-  store.selectSymbol('000300');
+  // 换标的时周期应保持，不再被"回落"
   store.setPeriod('minute');
-  check('A 股指数上分钟周期可用', store.get().period === 'minute', `period=${store.get().period}`);
-
-  // 面板：美股指数下四个分钟按钮应 disabled，日/周/月不 disabled
-  store.selectSymbol('DJI');
-  const usTree = render(mainComponent, {});
-  const usButtons = [];
-  (function walk(node) {
-    if (node === null || node === undefined || typeof node !== 'object') return;
-    if (Array.isArray(node)) return node.forEach(walk);
-    if (node.type === 'button') usButtons.push(node);
-    (node.children ?? []).forEach(walk);
-  })(usTree);
-  const byLabel = (label) => usButtons.find((b) => textOf(b).trim() === label);
-  const minuteLabels = ['分时', '5分', '15分', '30分', '60分'];
-  const disabledMinute = minuteLabels.filter((label) => byLabel(label)?.props?.disabled === true);
-  check(
-    '面板：美股指数下分钟周期按钮全部置灰',
-    disabledMinute.length === minuteLabels.length,
-    `置灰 ${disabledMinute.join(',') || '(无)'}`,
-  );
-  check(
-    '面板：美股指数下日/周/月按钮可用',
-    ['日K', '周K', '月K'].every((label) => byLabel(label)?.props?.disabled !== true),
-  );
-  check(
-    '面板：置灰按钮带有说明原因的 title',
-    typeof byLabel('分时')?.props?.title === 'string' && byLabel('分时').props.title.includes('日/周/月'),
-    String(byLabel('分时')?.props?.title),
-  );
-
-  // 换回 A 股指数：按钮恢复可用
   store.selectSymbol('000300');
-  const cnTree = render(mainComponent, {});
-  const cnButtons = [];
-  (function walk(node) {
-    if (node === null || node === undefined || typeof node !== 'object') return;
-    if (Array.isArray(node)) return node.forEach(walk);
-    if (node.type === 'button') cnButtons.push(node);
-    (node.children ?? []).forEach(walk);
-  })(cnTree);
-  check(
-    '面板：A 股指数下所有周期按钮都可用',
-    ['分时', '5分', '15分', '30分', '60分', '日K', '周K', '月K'].every(
-      (label) => cnButtons.find((b) => textOf(b).trim() === label)?.props?.disabled !== true,
-    ),
-  );
+  check('换标的时周期保持不变（不再回落日 K）', store.get().period === 'minute', `period=${store.get().period}`);
+
+  store.selectSymbol('000300');
+  store.setPeriod('day');
 }
 
 console.log(`\n${failures === 0 ? '全部通过' : failures + ' 项失败'}`);

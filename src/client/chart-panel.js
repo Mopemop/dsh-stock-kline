@@ -403,20 +403,11 @@ function StockPanel(props) {
     state.loading ? [h('span', { className: 'dsk-spin', key: 'sp' }), '刷新'] : '刷新',
   );
 
-  /**
-   * 当前标的支持哪些周期。
-   *
-   * 只有**美股指数**受限（腾讯对它们只提供日/周/月 K）—— 所以那四个分钟按钮
-   * 要置灰。不置灰的话用户点了只会看到"该周期没有数据"，而且看不出为什么。
-   */
-  var allowedPeriods = periodsForCode(state.symbol);
-
   var toolbarRow = h('div', { className: 'dsk-toolbar', key: 'toolbar' }, [
     h(
       'div',
       { className: 'dsk-tabs', key: 'periods' },
       PERIOD_ROWS.map(function (row) {
-        var supported = allowedPeriods === null || allowedPeriods.indexOf(row.id) >= 0;
         return h(
           'button',
           {
@@ -424,10 +415,7 @@ function StockPanel(props) {
             type: 'button',
             className: 'dsk-tab',
             'data-on': state.period === row.id ? '1' : '0',
-            disabled: supported ? undefined : true,
-            title: supported ? undefined : '该标的没有这个周期的数据（腾讯只提供日/周/月 K）',
             onClick: function () {
-              if (!supported) return;
               store.setPeriod(row.id);
             },
           },

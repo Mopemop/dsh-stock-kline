@@ -15,7 +15,7 @@
  *    页面上旧版本写的 `<style>` 会把新样式整体挡住（刷新也救不回来，因为新规则
  *    根本进不了 DOM）。**每次改样式都要提升版本号。**
  */
-var STYLE_TAG = 'dsh-stock-kline/client.v9.css';
+var STYLE_TAG = 'dsh-stock-kline/client.v10.css';
 
 /** 由构建脚本替换为真正的 CSS 文本。 */
 var STYLE_TEXT = __CSS_TEXT__;

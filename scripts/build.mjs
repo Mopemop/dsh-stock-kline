@@ -86,7 +86,7 @@ const EXPORTS = {
     'zoomStepsToCount',
   ],
   prefs: ['API', 'LOCAL_KEY', 'PREF_KEYS', 'loadLocalPrefs', 'saveLocalPrefs'],
-  indices: ['INDEXES', 'INDEX_GROUPS', 'indexByCode', 'periodsForCode'],
+  indices: ['INDEXES', 'INDEX_GROUPS', 'indexByCode'],
   styles: ['STYLE_TAG', 'cssText', 'getCss', 'installCss'],
   market: ['createStore', 'useStore', 'REFRESH_MS_BY_PERIOD', 'refreshIntervalFor'],
   chart: ['KlineChart'],
@@ -110,7 +110,7 @@ const MODULES = [
   { name: 'styles', file: 'styles.js', deps: [], what: '样式注入（CSS 文本在 styles/client.css）' },
   // market 依赖 indices 是为了「周期与标的匹配」：切到美股指数时要把分钟周期
   // 回落到日 K（腾讯对美股指数只提供日/周/月）。依赖 format 则是缩放维度那一套。
-  { name: 'market', file: 'market.js', deps: ['@platform', 'prefs', 'format', 'indices'], what: '行情状态中心 store + 订阅 Hook' },
+  { name: 'market', file: 'market.js', deps: ['@platform', 'prefs', 'format'], what: '行情状态中心 store + 订阅 Hook' },
   { name: 'chart', file: 'chart.js', deps: ['@platform', 'format'], what: '自绘 SVG K 线图' },
   { name: 'ticker', file: 'ticker.js', deps: ['@platform', 'format', 'market'], what: '价格挂件（透明小标签：名称 + 涨跌百分比）' },
   { name: 'skin', file: 'skin.js', deps: ['@platform', 'format', 'market'], what: '对话页背景 K 线（DOM 注入）' },
@@ -126,7 +126,7 @@ const MODULES = [
   {
     name: 'plugin',
     file: 'plugin.js',
-    deps: ['@platform', 'styles', 'format', 'market', 'indices', 'ticker', 'skin', 'chart', 'chart-panel'],
+    deps: ['@platform', 'styles', 'format', 'market', 'ticker', 'skin', 'chart', 'chart-panel'],
     what: '插件入口：槽位注册与生命周期',
   },
 ];

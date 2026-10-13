@@ -65,28 +65,19 @@ function indexByCode(code) {
 }
 
 /**
- * 这个代码支持哪些周期；返回 `null` 表示不限（个股与 A 股/港股指数）。
+ * 这里**曾经**有一个 `periodsForCode`，用来把美股指数的分钟周期按钮置灰
+ * —— 因为那时美股确实拿不到分钟级数据（腾讯的分时接口只回 1 个点）。
  *
- * 只有**美股指数**受限：腾讯对它们只提供日/周/月 K —— 分时接口只回一个点，
- * `kline/kline` 的 m5/m15/m30/m60 也只回一根。所以面板上那四个分钟按钮
- * 对美股指数要置灰，否则用户点了只会看到"该周期没有数据"。
+ * 接上东财之后这条不再成立：东财的 klt=1 对美股指数能给满 **390 根**
+ * （一个美股交易日），klt=5/15/30/60 也有原生数据；恒生科技虽然东财没有，
+ * 但腾讯的分时够用、可以自己聚合成分钟 K 线。
+ *
+ * 也就是说**每个指数都支持每个周期**，那个限制成了纯粹的谎话，于是删掉。
+ * 顺带删掉的是面板上的置灰逻辑、store 里的周期回落，以及它们的样式。
  */
-var PERIODS_BY_GROUP = {
-  cn: null,
-  hk: null,
-  us: ['day', 'week', 'month'],
-};
-
-function periodsForCode(code) {
-  var row = indexByCode(code);
-  if (row === null) return null;
-  var allowed = PERIODS_BY_GROUP[row.group];
-  return allowed === undefined ? null : allowed;
-}
 
 return {
   INDEXES: INDEXES,
   INDEX_GROUPS: INDEX_GROUPS,
   indexByCode: indexByCode,
-  periodsForCode: periodsForCode,
 };
